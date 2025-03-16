@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "expo_biker_alert",
+    "slug": "expo_biker_alert",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow BikerAlert to use your location to alert nearby cyclists/drivers.",
+          "locationAlwaysPermission": "Allow BikerAlert to use your location in the background to alert nearby cyclists/drivers.",
+          "locationWhenInUsePermission": "Allow BikerAlert to use your location to alert nearby cyclists/drivers.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ]
+    ]
+  }
+}
