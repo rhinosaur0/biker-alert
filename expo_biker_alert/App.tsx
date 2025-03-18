@@ -16,7 +16,7 @@ import {
 import MapView, { Marker, Region, Callout } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { io, Socket } from 'socket.io-client';
-// import { Audio } from 'expo-av';
+import { Audio } from 'expo-av';
 
 // Types for alert message received from the server.
 interface AlertMessage {
@@ -38,7 +38,7 @@ interface Position {
 
 // Replace with your actual Socket.IO server URL.
 const SOCKET_SERVER_URL = 'http://100.66.4.2:8080';
-// const audioSource = require('./assets/bikeralert.mp3');
+const audioSource = require('./assets/bikeralert.mp3');
 
 
 // Calculate bearing between two points
@@ -121,13 +121,25 @@ const App = () => {
   const [directionMessage, setDirectionMessage] = useState('');
   const socket = useRef<Socket | null>(null);
   const watchId = useRef<Location.LocationSubscription | null>(null);
-  // const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
 
   // Replace this with a unique identifier for your user.
   const userId = useRef('user-' + Math.floor(Math.random() * 10000)).current;
 
   const selectUserType = (type: UserType) => {
     setUserType(type);
+  };
+
+  const playAlert = async () => {
+    try {
+      console.log('Playing sound');
+      if (sound) {
+        await sound.replayAsync();
+        
+      }
+    } catch (error) {
+      console.error('Error playing sound', error);
+    }
   };
 
   const startTracking = async () => {
@@ -167,7 +179,7 @@ const App = () => {
             latitude: message.latitude,
             longitude: message.longitude,
           });
-          // playAlert(); // Replace player.play() with this
+          playAlert(); // Replace player.play() with this
           // Set appropriate message based on user type
           if (userType === 'driver') {
             setDirectionMessage(`Cyclist ${direction}! Distance: ${Math.round(message.distance)}m`);
@@ -196,7 +208,7 @@ const App = () => {
         longitude: initialPosition.coords.longitude,
         timestamp: initialPosition.timestamp
       };
-
+      playAlert();
       setCurrentPosition(newPosition);
       setPositionHistory([newPosition]);
 
@@ -246,35 +258,27 @@ const App = () => {
   };
 
   useEffect(() => {
-    // async function loadSound() {
-    //   try {
-    //     const { sound } = await Audio.Sound.createAsync(require('./assets/bikeralert.mp3'));
-    //     setSound(sound);
-    //   } catch (error) {
-    //     console.error('Error loading sound', error);
-    //   }
-    // }
-
-    // loadSound();
+    async function loadSound() {
+      try {
+        const { sound } = await Audio.Sound.createAsync(require('./assets/bikeralert.mp3'));
+        setSound(sound);
+      } catch (error) {
+        console.error('Error loading sound', error);
+      }
+    }
+    console.log('Loading sound');
+    loadSound();
 
     // Cleanup
     return () => {
-      // if (sound) {
-      //   sound.unloadAsync();
-      // }
+      if (sound) {
+        sound.unloadAsync();
+      }
     };
   }, []);
 
   // Play sound function
-  // const playAlert = async () => {
-  //   try {
-  //     if (sound) {
-  //       await sound.replayAsync();
-  //     }
-  //   } catch (error) {
-  //     console.error('Error playing sound', error);
-  //   }
-  // };
+
 
   useEffect(() => {
     // Cleanup on unmount
