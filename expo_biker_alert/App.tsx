@@ -13,9 +13,10 @@ import {
   Button,
   SafeAreaView
 } from 'react-native';
-import MapView, { Marker, Region } from 'react-native-maps';
+import MapView, { Marker, Region, Callout } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { io, Socket } from 'socket.io-client';
+// import { Audio } from 'expo-av';
 
 // Types for alert message received from the server.
 interface AlertMessage {
@@ -37,6 +38,8 @@ interface Position {
 
 // Replace with your actual Socket.IO server URL.
 const SOCKET_SERVER_URL = 'http://100.66.4.2:8080';
+// const audioSource = require('./assets/bikeralert.mp3');
+
 
 // Calculate bearing between two points
 function calculateBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -67,7 +70,7 @@ function determineRelativePosition(
   if (userPositions.length < 2) {
     return "Someone is nearby";
   }
-  
+  console.log(otherPosition);
   // Calculate user's heading based on recent positions
   const currentPosition = userPositions[userPositions.length - 1];
   const previousPosition = userPositions[userPositions.length - 2];
@@ -118,10 +121,11 @@ const App = () => {
   const [directionMessage, setDirectionMessage] = useState('');
   const socket = useRef<Socket | null>(null);
   const watchId = useRef<Location.LocationSubscription | null>(null);
+  // const [sound, setSound] = useState<Audio.Sound | null>(null);
 
   // Replace this with a unique identifier for your user.
   const userId = useRef('user-' + Math.floor(Math.random() * 10000)).current;
-  
+
   const selectUserType = (type: UserType) => {
     setUserType(type);
   };
@@ -148,28 +152,30 @@ const App = () => {
 
       socket.current.on('alert', (message: AlertMessage) => {
         // For a driver, alert about bikers; for a biker, alert about drivers.
-        if ((userType === 'driver' && message.fromType === 'biker') ||
-            (userType === 'biker' && message.fromType === 'driver')) {
-          
-          setOtherUserPosition({
+
+        
+        setOtherUserPosition({
+          latitude: message.latitude,
+          longitude: message.longitude,
+        });
+
+        
+        if (positionHistory.length >= 2) {
+          console.log(`Alert from ${message.from} (${message.fromType}) at ${message.latitude}, ${message.longitude}`);
+
+          const direction = determineRelativePosition(positionHistory, {
             latitude: message.latitude,
             longitude: message.longitude,
           });
-          
-          if (positionHistory.length >= 2) {
-            const direction = determineRelativePosition(positionHistory, {
-              latitude: message.latitude,
-              longitude: message.longitude,
-            });
-            
-            // Set appropriate message based on user type
-            if (userType === 'driver') {
-              setDirectionMessage(`Cyclist ${direction}! Distance: ${Math.round(message.distance)}m`);
-            } else {
-              setDirectionMessage(`Vehicle ${direction}! Distance: ${Math.round(message.distance)}m`);
-            }
+          // playAlert(); // Replace player.play() with this
+          // Set appropriate message based on user type
+          if (userType === 'driver') {
+            setDirectionMessage(`Cyclist ${direction}! Distance: ${Math.round(message.distance)}m`);
+          } else {
+            setDirectionMessage(`Vehicle ${direction}! Distance: ${Math.round(message.distance)}m`);
           }
         }
+        
       });
 
       socket.current.on('disconnect', () => {
@@ -209,10 +215,12 @@ const App = () => {
           };
                     
           setCurrentPosition(newPosition);
+          setOtherUserPosition(newPosition);
           
           // Update position history (keep last 10 positions)
           setPositionHistory(prevHistory => {
             const newHistory = [...prevHistory, newPosition];
+
             if (newHistory.length > 10) {
               return newHistory.slice(newHistory.length - 10);
             }
@@ -236,6 +244,37 @@ const App = () => {
       console.error('Error starting tracking:', err);
     }
   };
+
+  useEffect(() => {
+    // async function loadSound() {
+    //   try {
+    //     const { sound } = await Audio.Sound.createAsync(require('./assets/bikeralert.mp3'));
+    //     setSound(sound);
+    //   } catch (error) {
+    //     console.error('Error loading sound', error);
+    //   }
+    // }
+
+    // loadSound();
+
+    // Cleanup
+    return () => {
+      // if (sound) {
+      //   sound.unloadAsync();
+      // }
+    };
+  }, []);
+
+  // Play sound function
+  // const playAlert = async () => {
+  //   try {
+  //     if (sound) {
+  //       await sound.replayAsync();
+  //     }
+  //   } catch (error) {
+  //     console.error('Error playing sound', error);
+  //   }
+  // };
 
   useEffect(() => {
     // Cleanup on unmount
@@ -294,27 +333,26 @@ const App = () => {
       )}
       {tracking && currentPosition && (
         <>
-          <MapView style={styles.map} initialRegion={initialRegion}>
-            <Marker
-              coordinate={{
-                latitude: currentPosition.latitude,
-                longitude: currentPosition.longitude,
-              }}
-              title={userType === 'driver' ? "You (Driver)" : "You (Cyclist)"}
-            />
-            {otherUserPosition && (
+          <MapView 
+            style={styles.map} 
+            initialRegion={initialRegion}
+            followsUserLocation={true}
+            showsUserLocation={true}
+          >
+            {otherUserPosition && directionMessage && (
               <Marker
                 coordinate={otherUserPosition}
                 title={userType === 'driver' ? "Cyclist" : "Driver"}
-                pinColor={userType === 'driver' ? "blue" : "red"}
-              />
+                pinColor="blue"
+              >
+                <Callout tooltip={false}>
+                  <View style={styles.calloutContainer}>
+                    <Text style={styles.calloutText}>{directionMessage}</Text>
+                  </View>
+                </Callout>
+              </Marker>
             )}
           </MapView>
-          {directionMessage !== '' && (
-            <View style={styles.alertContainer}>
-              <Text style={styles.alertText}>{directionMessage}</Text>
-            </View>
-          )}
         </>
       )}
     </View>
@@ -371,6 +409,15 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     textAlign: 'center',
+  },
+  calloutContainer: {
+    backgroundColor: 'white',
+    borderRadius: 10,
+    padding: 5,
+  },
+  calloutText: {
+    color: 'black',
+    fontSize: 14,
   },
 });
 

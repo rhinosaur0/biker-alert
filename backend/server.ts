@@ -70,6 +70,8 @@ io.on('connection', (socket) => {
           { latitude: otherUser.latitude, longitude: otherUser.longitude }
         );
 
+        console.log(`Distance between ${user.id} and ${otherUser.id}: ${distance} meters`);
+
         if (distance <= ALERT_DISTANCE_METERS) {
           // Create the alert payload.
           const alertPayload = {
