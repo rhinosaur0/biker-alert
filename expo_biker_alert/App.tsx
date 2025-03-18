@@ -11,9 +11,10 @@ import {
   Text,
   View,
   Button,
-  SafeAreaView
+  SafeAreaView,
+  Animated
 } from 'react-native';
-import MapView, { Marker, Region, Callout } from 'react-native-maps';
+import MapView, { Marker, Region} from 'react-native-maps';
 import * as Location from 'expo-location';
 import { io, Socket } from 'socket.io-client';
 import { Audio } from 'expo-av';
@@ -70,7 +71,6 @@ function determineRelativePosition(
   if (userPositions.length < 2) {
     return "Someone is nearby";
   }
-  console.log(otherPosition);
   // Calculate user's heading based on recent positions
   const currentPosition = userPositions[userPositions.length - 1];
   const previousPosition = userPositions[userPositions.length - 2];
@@ -114,6 +114,7 @@ const App = () => {
   const [tracking, setTracking] = useState(false);
   const [currentPosition, setCurrentPosition] = useState<Position | null>(null);
   const [positionHistory, setPositionHistory] = useState<Position[]>([]);
+  const positionHistoryRef = useRef(positionHistory);
   const [otherUserPosition, setOtherUserPosition] = useState<{
     latitude: number;
     longitude: number;
@@ -122,6 +123,7 @@ const App = () => {
   const socket = useRef<Socket | null>(null);
   const watchId = useRef<Location.LocationSubscription | null>(null);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
   // Replace this with a unique identifier for your user.
   const userId = useRef('user-' + Math.floor(Math.random() * 10000)).current;
@@ -132,7 +134,6 @@ const App = () => {
 
   const playAlert = async () => {
     try {
-      console.log('Playing sound');
       if (sound) {
         await sound.replayAsync();
         
@@ -140,6 +141,26 @@ const App = () => {
     } catch (error) {
       console.error('Error playing sound', error);
     }
+  };
+
+  const showAlert = () => {
+    Animated.sequence([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fadeAnim, {
+        toValue: 0.3,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start();
   };
 
   const startTracking = async () => {
@@ -163,31 +184,31 @@ const App = () => {
       });
 
       socket.current.on('alert', (message: AlertMessage) => {
-        // For a driver, alert about bikers; for a biker, alert about drivers.
-
         
         setOtherUserPosition({
           latitude: message.latitude,
           longitude: message.longitude,
         });
-
-        
-        if (positionHistory.length >= 2) {
-          console.log(`Alert from ${message.from} (${message.fromType}) at ${message.latitude}, ${message.longitude}`);
-
-          const direction = determineRelativePosition(positionHistory, {
+      
+        // Get latest position history state
+        if (positionHistoryRef.current.length >= 2) {
+          const direction = determineRelativePosition(positionHistoryRef.current, {
             latitude: message.latitude,
             longitude: message.longitude,
           });
-          playAlert(); // Replace player.play() with this
+      
+          playAlert();
+          
           // Set appropriate message based on user type
-          if (userType === 'driver') {
-            setDirectionMessage(`Cyclist ${direction}! Distance: ${Math.round(message.distance)}m`);
-          } else {
-            setDirectionMessage(`Vehicle ${direction}! Distance: ${Math.round(message.distance)}m`);
-          }
+          const newMessage = userType === 'driver' 
+            ? `Cyclist ${direction}! Distance: ${Math.round(message.distance)}m`
+            : `Vehicle ${direction}! Distance: ${Math.round(message.distance)}m`;
+          
+          setDirectionMessage(newMessage);
+          showAlert();
+        } else {
+          console.log('Insufficient position history:', positionHistoryRef.current.length);
         }
-        
       });
 
       socket.current.on('disconnect', () => {
@@ -208,39 +229,39 @@ const App = () => {
         longitude: initialPosition.coords.longitude,
         timestamp: initialPosition.timestamp
       };
-      playAlert();
-      setCurrentPosition(newPosition);
-      setPositionHistory([newPosition]);
+
+      // Initialize position history
+      await Promise.all([
+        setCurrentPosition(newPosition),
+        setPositionHistory([newPosition])
+      ]);
+
+      console.log('Initial state set:', { newPosition, positionHistory: [newPosition] });
 
       // Start location updates
       watchId.current = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.BestForNavigation,
           timeInterval: 500,
-          distanceInterval: 1
         },
-        (position) => {
+        async (position) => {
           const newPosition = {
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
             timestamp: position.timestamp
           };
-                    
-          setCurrentPosition(newPosition);
-          setOtherUserPosition(newPosition);
           
-          // Update position history (keep last 10 positions)
-          setPositionHistory(prevHistory => {
-            const newHistory = [...prevHistory, newPosition];
+          // Update states using callback form to ensure we have latest state
+          await Promise.all([
+            setCurrentPosition(newPosition),
+            setPositionHistory(prevHistory => {
+              const updatedHistory = [...prevHistory, newPosition].slice(-10);
+              return updatedHistory;
+            })
+          ]);
 
-            if (newHistory.length > 10) {
-              return newHistory.slice(newHistory.length - 10);
-            }
-            return newHistory;
-          });
-          
           // Send update via Socket.IO
-          if (socket.current && socket.current.connected) {
+          if (socket.current?.connected) {
             socket.current.emit('update', {
               id: userId,
               userType: userType,
@@ -291,6 +312,12 @@ const App = () => {
       }
     };
   }, []);
+
+  // Add a debug useEffect to monitor position history changes
+
+  useEffect(() => {
+    positionHistoryRef.current = positionHistory;
+  }, [positionHistory]);
 
   // Define an initial region for the map.
   const initialRegion: Region = currentPosition ? {
@@ -343,20 +370,32 @@ const App = () => {
             followsUserLocation={true}
             showsUserLocation={true}
           >
-            {otherUserPosition && directionMessage && (
+            {otherUserPosition && (
               <Marker
                 coordinate={otherUserPosition}
                 title={userType === 'driver' ? "Cyclist" : "Driver"}
                 pinColor="blue"
               >
-                <Callout tooltip={false}>
+                {/* <Callout tooltip={false}>
                   <View style={styles.calloutContainer}>
                     <Text style={styles.calloutText}>{directionMessage}</Text>
                   </View>
-                </Callout>
+                </Callout> */}
               </Marker>
             )}
           </MapView>
+          {directionMessage && (
+            <Animated.View 
+              style={[
+                styles.warningOverlay,
+                {
+                  opacity: fadeAnim,
+                }
+              ]}
+            >
+              <Text style={styles.warningText}>{directionMessage}</Text>
+            </Animated.View>
+          )}
         </>
       )}
     </View>
@@ -422,6 +461,30 @@ const styles = StyleSheet.create({
   calloutText: {
     color: 'black',
     fontSize: 14,
+  },
+  warningOverlay: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(255, 0, 0, 0.9)',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  warningText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
 });
 
