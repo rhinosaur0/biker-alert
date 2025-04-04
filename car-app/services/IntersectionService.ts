@@ -3,13 +3,9 @@ import * as geokdbush from 'geokdbush';
 
 interface GeoJSONFeature {
   type: string;
-  geometry: {
-    type: string;
-    coordinates: [number, number][];
-  };
   properties: {
     INTERSECTION_ID: number;
-    INTERSECTION_DESC: string;
+    coordinates: [number, number][];  // Updated to match your data structure
   };
 }
 
@@ -26,16 +22,35 @@ let intersectionPoints: Array<{
   description: string;
 }> = [];
 
-export const loadIntersections = async (filePath: string) => {
+export const loadIntersections = async () => {
   try {
-    const response = await fetch(filePath);
-    const geojsonData: GeoJSONData = await response.json();
+    // Import the JSON file directly
+    const geojsonData: GeoJSONData = {
+      type: 'FeatureCollection',
+      name: 'intersections',
+      features: [
+        {
+          "type": "Feature",
+          "properties": {
+            "INTERSECTION_ID": 13465273,
+            "coordinates": [[-79.393484525472203, 43.659199931529699]]
+          }
+        },
+        {
+          "type": "Feature",
+          "properties": {
+            "INTERSECTION_ID": 13465293,
+            "coordinates": [[-79.394065813944195, 43.659077999362097]]
+          }
+        },
+      ]
+    };
     
     // Extract coordinates and properties
     intersectionPoints = geojsonData.features.map(feature => ({
-      coordinates: feature.geometry.coordinates[0] as [number, number],
+      coordinates: feature.properties.coordinates[0] as [number, number],
       id: feature.properties.INTERSECTION_ID,
-      description: feature.properties.INTERSECTION_DESC
+      description: '' // Add fallback for missing description
     }));
 
     // Initialize KDBush with the number of points
@@ -65,14 +80,14 @@ export const checkNearbyIntersections = (
   if (!kdTree) return { isNear: false };
   
   // Use geokdbush.around to find nearby points
+  // Parameters: index, longitude, latitude, maxResults, maxDistance in kilometers
   const nearbyIndices = geokdbush.around(
     kdTree,
     longitude,
     latitude,
-    radius,
-    5,
-    100
-  ) as number[];  // Add type assertion here
+    5,  // maxResults: maximum number of points to return
+    radius // meters
+  ) as number[];
   
   if (nearbyIndices.length === 0) return { isNear: false };
   

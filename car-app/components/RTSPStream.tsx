@@ -20,7 +20,7 @@ const RTSPStream: React.FC<RTSPStreamProps> = ({ style, onError }) => {
     <View style={[styles.container, style]}>
       <VLCPlayer
         style={styles.player}
-        source={stream}
+        source={stream.uri}
         paused={false}
         onError={(error) => {
           console.error('VLC Error:', error);

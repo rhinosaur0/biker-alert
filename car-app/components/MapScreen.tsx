@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Dimensions } from 'react-native';
+import { StyleSheet, View, Dimensions, Text } from 'react-native';
 import * as Location from 'expo-location';
-import MapView, { Marker } from 'react-native-maps';  // Changed import
+import MapView, { Marker } from 'react-native-maps';
 import LoadingComponent from './LoadingComponent';
 import AlertComponent from './AlertComponent';
+import RTSPStream from './RTSPStream';
 import { checkNearbyIntersections, loadIntersections } from '../services/IntersectionService';
-import { startCameraStream, stopCameraStream } from '../services/CameraService';
-import { detectObjects } from '../services/DetectionService';
+import { startCameraStream, stopCameraStream, getCameraFrame } from '../services/CameraService';
+import io from 'socket.io-client';
+
+const SOCKET_URL = 'YOUR_SOCKET_SERVER_URL';
+const socket = io(SOCKET_URL);
 
 // Sample intersection data format, replace with your actual data source
 const sampleIntersections = [
@@ -21,8 +25,25 @@ const MapScreen: React.FC = () => {
   const [showAlert, setShowAlert] = useState(false);
   const [intersectionNearby, setIntersectionNearby] = useState(false);
   const [nearbyIntersections, setNearbyIntersections] = useState<Array<{ id: number; description: string }>>([]);
-  const mapRef = useRef<MapView>(null);  // Changed ref type
-  
+  const mapRef = useRef<MapView>(null);
+  const [isCameraReady, setIsCameraReady] = useState(false);
+
+  useEffect(() => {
+    // Connect to socket
+    socket.connect();
+    
+    // Listen for car detections
+    socket.on('receiveCarDetection', (hasDetectedCar: boolean) => {
+      if (hasDetectedCar) {
+        setShowAlert(true);
+      }
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
   // Set up location tracking and intersection data
   useEffect(() => {
     let locationSubscription: Location.LocationSubscription;
@@ -30,7 +51,7 @@ const MapScreen: React.FC = () => {
     
     const initialize = async () => {
       // Load intersections from GeoJSON file
-      const loaded = await loadIntersections('/assets/intersections.geojson');
+      const loaded = await loadIntersections();
       if (!loaded) {
         console.error('Failed to load intersections');
         return;
@@ -61,24 +82,17 @@ const MapScreen: React.FC = () => {
       );
       
       // Start camera stream
-      await startCameraStream();
+      const streamStarted = await startCameraStream();
+      setIsCameraReady(streamStarted);
       
       // Object detection loop
       detectionInterval = setInterval(async () => {
         if (intersectionNearby) {
+          console.log('begin detecting for cars');
           try {
             const frame = await getCameraFrame();
             if (frame) {
-              const detections = await detectObjects(frame);
-              const hasCar = detections.some(detection => 
-                detection.class === 'car' || 
-                detection.class === 'truck' || 
-                detection.class === 'bus'
-              );
-              
-              if (hasCar) {
-                setShowAlert(true);
-              }
+              socket.emit('getCarDetection', { frame });
             }
           } catch (error) {
             console.error('Detection error:', error);
@@ -102,17 +116,23 @@ const MapScreen: React.FC = () => {
       stopCameraStream();
     };
   }, [intersectionNearby]);
-  
-  // Function to get camera frame (will be implemented in CameraService)
-  const getCameraFrame = async () => {
-    // This will be implemented in CameraService
-    // For now, return a placeholder
-    return "base64encodedimage";
-  };
 
   return (
     <View style={styles.container}>
       <LoadingComponent visible={loading} />
+      
+      <View style={styles.cameraContainer}>
+        {isCameraReady ? (
+          <RTSPStream
+            style={styles.camera}
+            onError={(error) => console.error('Stream error:', error)}
+          />
+        ) : (
+          <View style={styles.noCameraView}>
+            <Text>No camera detected</Text>
+          </View>
+        )}
+      </View>
       
       <MapView
         ref={mapRef}
@@ -126,18 +146,7 @@ const MapScreen: React.FC = () => {
           longitudeDelta: 0.01,
         }}
       >
-        {/* Add markers if needed */}
-        {sampleIntersections.map((intersection, index) => (
-          <Marker
-            key={index}
-            coordinate={{
-              latitude: intersection.coordinates[0][0],
-              longitude: intersection.coordinates[0][1],
-            }}
-          />
-        ))}
       </MapView>
-      
       <AlertComponent 
         visible={showAlert} 
         onTimeout={() => setShowAlert(false)} 
@@ -150,9 +159,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  cameraContainer: {
+    height: Dimensions.get('window').height * 0.5,
+  },
+  camera: {
+    flex: 1,
+  },
+  noCameraView: {
+    flex: 1,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   map: {
-    width: Dimensions.get('window').width,
-    height: Dimensions.get('window').height,
+    height: Dimensions.get('window').height * 0.5,
   },
 });
 
