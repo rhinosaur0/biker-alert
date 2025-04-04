@@ -124,6 +124,10 @@ const App = () => {
   const watchId = useRef<Location.LocationSubscription | null>(null);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [isAlertVisible, setIsAlertVisible] = useState(false);
+  const alertTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [isMarkerVisible, setIsMarkerVisible] = useState(false);
+  const markerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Replace this with a unique identifier for your user.
   const userId = useRef('user-' + Math.floor(Math.random() * 10000)).current;
@@ -144,6 +148,15 @@ const App = () => {
   };
 
   const showAlert = () => {
+    // Clear any existing timeout
+    if (alertTimeoutRef.current) {
+      clearTimeout(alertTimeoutRef.current);
+    }
+  
+    // Show the alert
+    setIsAlertVisible(true);
+  
+    // Start the animation sequence
     Animated.sequence([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -161,6 +174,26 @@ const App = () => {
         useNativeDriver: true,
       }),
     ]).start();
+  
+    // Set timeout to hide the alert after 8 seconds
+    alertTimeoutRef.current = setTimeout(() => {
+      setIsAlertVisible(false);
+    }, 8000);
+  };
+
+  const showMarker = () => {
+    // Clear any existing timeout
+    if (markerTimeoutRef.current) {
+      clearTimeout(markerTimeoutRef.current);
+    }
+  
+    // Show the marker
+    setIsMarkerVisible(true);
+  
+    // Set timeout to hide the marker after 8 seconds
+    markerTimeoutRef.current = setTimeout(() => {
+      setIsMarkerVisible(false);
+    }, 8000);
   };
 
   const startTracking = async () => {
@@ -189,6 +222,7 @@ const App = () => {
           latitude: message.latitude,
           longitude: message.longitude,
         });
+        showMarker(); // Add this line
       
         // Get latest position history state
         if (positionHistoryRef.current.length >= 2) {
@@ -310,6 +344,12 @@ const App = () => {
       if (socket.current) {
         socket.current.disconnect();
       }
+      if (alertTimeoutRef.current) {
+        clearTimeout(alertTimeoutRef.current);
+      }
+      if (markerTimeoutRef.current) {
+        clearTimeout(markerTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -370,7 +410,7 @@ const App = () => {
             followsUserLocation={true}
             showsUserLocation={true}
           >
-            {otherUserPosition && (
+            {otherUserPosition && isMarkerVisible && (
               <Marker
                 coordinate={otherUserPosition}
                 title={userType === 'driver' ? "Cyclist" : "Driver"}
@@ -384,7 +424,7 @@ const App = () => {
               </Marker>
             )}
           </MapView>
-          {directionMessage && (
+          {directionMessage && isAlertVisible && (
             <Animated.View 
               style={[
                 styles.warningOverlay,

@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import MapView, { Marker, Region } from 'react-native-maps';
 import Geolocation from '@react-native-community/geolocation';
-import { io, Socket } from 'socket.io-client';
+
 
 // Types for alert message received from the server.
 interface AlertMessage {
@@ -36,7 +36,7 @@ interface Position {
 }
 
 // Replace with your actual Socket.IO server URL.
-const SOCKET_SERVER_URL = 'http://100.66.4.2:8080';
+
 
 // Calculate bearing between two points
 function calculateBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -116,7 +116,7 @@ const App = () => {
     longitude: number;
   } | null>(null);
   const [directionMessage, setDirectionMessage] = useState('');
-  const socket = useRef<Socket | null>(null);
+
   const watchId = useRef<number | null>(null);
   const locationInterval = useRef<NodeJS.Timeout | null>(null);
 
@@ -137,49 +137,7 @@ const App = () => {
       enableBackgroundLocationUpdates: true,
       locationProvider: 'auto'
     });
-    
-    // Open Socket.IO connection.
-    socket.current = io(SOCKET_SERVER_URL, {
-      transports: ['websocket'], // force WebSocket transport only
-    });
-    
-    socket.current.on('connect', () => {
-      console.log('Connected to Socket.IO server');
-    });
-
-    socket.current.on('alert', (message: AlertMessage) => {
-      // For a driver, alert about bikers; for a biker, alert about drivers.
-      if ((userType === 'driver' && message.fromType === 'biker') ||
-          (userType === 'biker' && message.fromType === 'driver')) {
-        
-        setOtherUserPosition({
-          latitude: message.latitude,
-          longitude: message.longitude,
-        });
-        
-        if (positionHistory.length >= 2) {
-          const direction = determineRelativePosition(positionHistory, {
-            latitude: message.latitude,
-            longitude: message.longitude,
-          });
-          
-          // Set appropriate message based on user type
-          if (userType === 'driver') {
-            setDirectionMessage(`Cyclist ${direction}! Distance: ${Math.round(message.distance)}m`);
-          } else {
-            setDirectionMessage(`Vehicle ${direction}! Distance: ${Math.round(message.distance)}m`);
-          }
-        }
-      }
-    });
-
-    socket.current.on('disconnect', () => {
-      console.log('Disconnected from Socket.IO server');
-    });
-
-    socket.current.on('connect_error', (error) => {
-      console.error('Connection error:', error);
-    });
+  
 
     // Get initial position
     Geolocation.getCurrentPosition(
@@ -220,15 +178,6 @@ const App = () => {
             return newHistory;
           });
           
-          // Send update via Socket.IO.
-          if (socket.current && socket.current.connected) {
-            socket.current.emit('update', {
-              id: userId,
-              userType: userType,
-              latitude,
-              longitude,
-            });
-          }
         },
         (error) => console.error(error),
         { enableHighAccuracy: true }
@@ -247,9 +196,6 @@ const App = () => {
       if (locationInterval.current !== null) {
         clearInterval(locationInterval.current);
       }
-      if (socket.current) {
-        socket.current.disconnect();
-      }
     };
   }, []);
 
@@ -266,36 +212,9 @@ const App = () => {
     longitudeDelta: 0.01,
   };
 
-  // If user type not selected, show selection screen
-  if (!userType) {
-    return (
-      <SafeAreaView style={styles.selectionContainer}>
-        <Text style={styles.title}>Select User Type</Text>
-        <View style={styles.buttonContainer}>
-          <Button 
-            title="Join as Driver" 
-            onPress={() => selectUserType('driver')} 
-          />
-          <View style={styles.buttonSpacer} />
-          <Button 
-            title="Join as Cyclist" 
-            onPress={() => selectUserType('biker')} 
-          />
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   return (
     <View style={styles.container}>
-      {!tracking && (
-        <SafeAreaView style={styles.startContainer}>
-          <Text style={styles.userTypeText}>
-            {userType === 'driver' ? 'Driver Mode' : 'Cyclist Mode'}
-          </Text>
-          <Button title="Start Tracking" onPress={startTracking} />
-        </SafeAreaView>
-      )}
       {tracking && currentPosition && (
         <>
           <MapView style={styles.map} initialRegion={initialRegion}>
