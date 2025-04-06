@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Dimensions, Text } from 'react-native';
+import { StyleSheet, View, Dimensions, Text, Animated } from 'react-native';
 import * as Location from 'expo-location';
 import MapView from 'react-native-maps';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -18,9 +18,15 @@ const MapScreen: React.FC = () => {
   const [showAlert, setShowAlert] = useState(false);
   const [intersectionNearby, setIntersectionNearby] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [currentIntersection, setCurrentIntersection] = useState<string | null>(null);
+  const lastIntersectionUpdate = useRef(0);
+  const notificationAnim = useRef(new Animated.Value(100)).current;
   const mapRef = useRef<MapView>(null);
   const cameraRef = useRef<CameraView>(null);
   const streamingInterval = useRef<NodeJS.Timeout | null>(null);
+  const isMounted = useRef(true);
+  const [isCapturing, setIsCapturing] = useState(false);
+
 
   // Handle socket connection and camera streaming
   useEffect(() => {
@@ -33,6 +39,7 @@ const MapScreen: React.FC = () => {
     });
 
     return () => {
+      isMounted.current = false;
       if (streamingInterval.current) {
         clearInterval(streamingInterval.current);
       }
@@ -52,11 +59,31 @@ const MapScreen: React.FC = () => {
       });
 
       if (photo.base64 && intersectionNearby) {
+        console.log('sending poto')
         socket.emit('getCarDetection', { frame: photo.base64 });
       }
     } catch (error) {
       console.error('Camera error:', error);
+    } finally {
+      setIsCapturing(false);
     }
+  };
+
+  const showNotification = (intersectionName: string) => {
+    setCurrentIntersection(intersectionName);
+    Animated.sequence([
+      Animated.timing(notificationAnim, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+      Animated.delay(3000),
+      Animated.timing(notificationAnim, {
+        toValue: 100,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+    ]).start(() => setCurrentIntersection(null));
   };
 
   // Initialize camera and location tracking
@@ -91,13 +118,24 @@ const MapScreen: React.FC = () => {
             20
           );
           
-          setIntersectionNearby(isNear);
+          const currentTime = Date.now();
+          if (currentTime - lastIntersectionUpdate.current >= COOLDOWN_DURATION) {
+            if (isNear !== intersectionNearby) {
+              setIntersectionNearby(isNear);
+              lastIntersectionUpdate.current = currentTime;
+              
+              // Show notification when entering intersection zone
+              if (isNear && nearby && nearby.length > 0) {
+                showNotification(nearby[0].description || `Intersection ${nearby[0].id}`);
+              }
+            }
+          }
         }
       );
 
       // Start camera streaming
       if (cameraPermission?.granted) {
-        streamingInterval.current = setInterval(startStreaming, 125);
+        streamingInterval.current = setInterval(startStreaming, 1000);
       }
       
       setLoading(false);
@@ -132,6 +170,7 @@ const MapScreen: React.FC = () => {
           ref={cameraRef}
           style={styles.camera}
           facing="front"
+          animateShutter={false}
         >
           <View style={styles.statusBar}>
             <Text style={styles.statusText}>
@@ -141,18 +180,34 @@ const MapScreen: React.FC = () => {
         </CameraView>
       </View>
       
-      <MapView
-        ref={mapRef}
-        style={styles.map}
-        showsUserLocation={true}
-        followsUserLocation={true}
-        initialRegion={{
-          latitude: location?.coords.latitude || 37.78825,
-          longitude: location?.coords.longitude || -122.4324,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        }}
-      />
+      <View style={styles.mapContainer}>
+        <MapView
+          ref={mapRef}
+          style={styles.map}
+          showsUserLocation={true}
+          followsUserLocation={true}
+          initialRegion={{
+            latitude: location?.coords.latitude || 37.78825,
+            longitude: location?.coords.longitude || -122.4324,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01,
+          }}
+        />
+        
+        <Animated.View 
+          style={[
+            styles.notification,
+            {
+              transform: [{ translateY: notificationAnim }]
+            }
+          ]}
+        >
+          <Text style={styles.notificationText}>
+            {currentIntersection ? `Approaching ${currentIntersection}` : ''}
+          </Text>
+        </Animated.View>
+      </View>
+      
       <AlertComponent 
         visible={showAlert} 
         onTimeout={() => setShowAlert(false)} 
@@ -183,8 +238,27 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
   },
-  map: {
+  mapContainer: {
     height: Dimensions.get('window').height * 0.5,
+    position: 'relative',
+  },
+  map: {
+    height: '100%',
+  },
+  notification: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  notificationText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

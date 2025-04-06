@@ -1,38 +1,37 @@
 import React, { useState, useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { View, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 import StartButton from '../components/StartButton';
 import MapScreen from '../components/MapScreen';
-import CameraUsage from '../components/CameraUsage';
-import CustomButton from '../components/CustomButton';
 import * as Location from 'expo-location';
 
 export default function App() {
-  const [mode, setMode] = useState<'none' | 'camera' | 'biker'>('none');
+  const [hasStarted, setHasStarted] = useState(false);
   const [locationPermission, setLocationPermission] = useState(false);
-
 
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       setLocationPermission(status === 'granted');
-      setMode('biker');
     })();
   }, []);
+
+  const handleStart = () => {
+    setHasStarted(true);
+  };
 
   return (
     <SafeAreaProvider>
       <StatusBar style="auto" />
-      {mode === 'camera' ? (
-        <CameraUsage />
-      ) : mode === 'biker' ? (
-        locationPermission ? (
-          <MapScreen />
-        ) : (
-          <StartButton onStart={() => {}} locationPermission={locationPermission} />
-        )
-      ) : null}
+      {!hasStarted ? (
+        <StartButton 
+          onStart={handleStart} 
+          locationPermission={locationPermission} 
+        />
+      ) : (
+        <MapScreen />
+      )}
     </SafeAreaProvider>
   );
 }

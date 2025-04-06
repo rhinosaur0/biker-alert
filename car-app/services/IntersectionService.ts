@@ -85,7 +85,7 @@ export const checkNearbyIntersections = (
     kdTree,
     longitude,
     latitude,
-    5,  // maxResults: maximum number of points to return
+    1,  // maxResults: maximum number of points to return
     radius // meters
   ) as number[];
   
