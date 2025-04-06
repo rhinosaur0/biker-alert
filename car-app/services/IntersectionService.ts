@@ -1,18 +1,14 @@
 import KDBush from 'kdbush';
 import * as geokdbush from 'geokdbush';
 
-interface GeoJSONFeature {
-  type: string;
-  properties: {
-    INTERSECTION_ID: number;
-    coordinates: [number, number][];  // Updated to match your data structure
+interface Intersection {
+  _id: number;
+  INTERSECTION_ID: number;
+  INTERSECTION_DESC: string;
+  geometry: {
+    type: string;
+    coordinates: [number, number][];
   };
-}
-
-interface GeoJSONData {
-  type: string;
-  name: string;
-  features: GeoJSONFeature[];
 }
 
 let kdTree: KDBush | null = null;
@@ -22,35 +18,62 @@ let intersectionPoints: Array<{
   description: string;
 }> = [];
 
+const fetchIntersections = async () => {
+  const packageId = "2c83f641-7808-49ba-b80f-7011851d4e27";
+  
+  try {
+    // First get the package metadata
+    const getPackage = () => new Promise<any>((resolve, reject) => {
+      fetch(`https://ckan0.cf.opendata.inter.prod-toronto.ca/api/3/action/package_show?id=${packageId}`)
+        .then(response => response.json())
+        .then(data => resolve(data.result))
+        .catch(reject);
+    });
+
+    // Get the datastore resource with all records
+    const getDatastoreResource = (resource: any) => new Promise<Intersection[]>((resolve, reject) => {
+      // Add limit=-1 to get all records
+      fetch(`https://ckan0.cf.opendata.inter.prod-toronto.ca/api/3/action/datastore_search?id=${resource.id}&limit=50000`)
+        .then(response => response.json())
+        .then(data => {
+          const records = data.result.records;
+          console.log('Total records:', data.result.total);
+          // Parse the geometry string into an object
+          const parsedRecords = records.map((record: any) => ({
+            ...record,
+            geometry: JSON.parse(record.geometry)
+          }));
+          resolve(parsedRecords);
+        })
+        .catch(reject);
+    });
+
+    // Execute the sequence
+    const pkg = await getPackage();
+    const datastoreResources = pkg.resources.filter((r: any) => r.datastore_active);
+    const intersections = await getDatastoreResource(datastoreResources[0]);
+    
+    console.log('Fetched intersections:', intersections.length);
+    return intersections;
+
+  } catch (error) {
+    console.error('Error fetching intersections:', error);
+    throw error;
+  }
+};
+
 export const loadIntersections = async () => {
   try {
-    // Import the JSON file directly
-    const geojsonData: GeoJSONData = {
-      type: 'FeatureCollection',
-      name: 'intersections',
-      features: [
-        {
-          "type": "Feature",
-          "properties": {
-            "INTERSECTION_ID": 13465273,
-            "coordinates": [[-79.393484525472203, 43.659199931529699]]
-          }
-        },
-        {
-          "type": "Feature",
-          "properties": {
-            "INTERSECTION_ID": 13465293,
-            "coordinates": [[-79.394065813944195, 43.659077999362097]]
-          }
-        },
-      ]
-    };
+    const intersections = await fetchIntersections();
     
     // Extract coordinates and properties
-    intersectionPoints = geojsonData.features.map(feature => ({
-      coordinates: feature.properties.coordinates[0] as [number, number],
-      id: feature.properties.INTERSECTION_ID,
-      description: '' // Add fallback for missing description
+    intersectionPoints = intersections.map(intersection => ({
+      coordinates: [
+        intersection.geometry.coordinates[0][0], // longitude
+        intersection.geometry.coordinates[0][1]  // latitude
+      ],
+      id: intersection.INTERSECTION_ID,
+      description: intersection.INTERSECTION_DESC
     }));
 
     // Initialize KDBush with the number of points
@@ -75,24 +98,23 @@ export const loadIntersections = async () => {
 export const checkNearbyIntersections = (
   latitude: number,
   longitude: number,
-  radius: number // radius in meters
+  radius: number // radius in kilometers
 ): { isNear: boolean; nearbyIntersections?: Array<{ id: number; description: string }> } => {
   if (!kdTree) return { isNear: false };
   
   // Use geokdbush.around to find nearby points
-  // Parameters: index, longitude, latitude, maxResults, maxDistance in kilometers
   const nearbyIndices = geokdbush.around(
     kdTree,
     longitude,
     latitude,
     1,  // maxResults: maximum number of points to return
-    radius // meters
+    radius // kilometers
   ) as number[];
   
   if (nearbyIndices.length === 0) return { isNear: false };
   
   // Get intersection details for nearby points
-  const nearbyIntersections = nearbyIndices.map((index: number) => ({
+  const nearbyIntersections = nearbyIndices.map(index => ({
     id: intersectionPoints[index].id,
     description: intersectionPoints[index].description
   }));

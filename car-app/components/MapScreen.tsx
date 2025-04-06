@@ -115,7 +115,7 @@ const MapScreen: React.FC = () => {
           const { isNear, nearbyIntersections: nearby } = checkNearbyIntersections(
             newLocation.coords.latitude,
             newLocation.coords.longitude,
-            20
+            0.02 // 20 meters
           );
           
           const currentTime = Date.now();
