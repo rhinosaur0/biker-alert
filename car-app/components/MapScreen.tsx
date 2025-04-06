@@ -57,7 +57,7 @@ const MapScreen: React.FC = () => {
         base64: true,
         skipProcessing: true,
       });
-
+      if (!photo) return;
       if (photo.base64 && intersectionNearby) {
         console.log('sending poto')
         socket.emit('getCarDetection', { frame: photo.base64 });
