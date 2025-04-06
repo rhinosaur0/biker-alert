@@ -1,137 +1,144 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Dimensions, Text } from 'react-native';
 import * as Location from 'expo-location';
-import MapView, { Marker } from 'react-native-maps';
+import MapView from 'react-native-maps';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import LoadingComponent from './LoadingComponent';
 import AlertComponent from './AlertComponent';
-import RTSPStream from './RTSPStream';
 import { checkNearbyIntersections, loadIntersections } from '../services/IntersectionService';
-import { startCameraStream, stopCameraStream, getCameraFrame } from '../services/CameraService';
 import io from 'socket.io-client';
 
-const SOCKET_URL = 'YOUR_SOCKET_SERVER_URL';
+const SOCKET_URL = 'http://100.66.7.153:8000';
+const COOLDOWN_DURATION = 5000; // 5 seconds in milliseconds
 const socket = io(SOCKET_URL);
-
-// Sample intersection data format, replace with your actual data source
-const sampleIntersections = [
-  { coordinates: [[40.7128, -74.0060]] }, // New York
-  { coordinates: [[34.0522, -118.2437]] }, // Los Angeles
-  // Add more intersections as needed
-];
 
 const MapScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [showAlert, setShowAlert] = useState(false);
   const [intersectionNearby, setIntersectionNearby] = useState(false);
-  const [nearbyIntersections, setNearbyIntersections] = useState<Array<{ id: number; description: string }>>([]);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const mapRef = useRef<MapView>(null);
-  const [isCameraReady, setIsCameraReady] = useState(false);
+  const cameraRef = useRef<CameraView>(null);
+  const streamingInterval = useRef<NodeJS.Timeout | null>(null);
 
+  // Handle socket connection and camera streaming
   useEffect(() => {
-    // Connect to socket
     socket.connect();
     
-    // Listen for car detections
-    socket.on('receiveCarDetection', (hasDetectedCar: boolean) => {
-      if (hasDetectedCar) {
+    socket.on('receiveStreaming', ({ carDetected }) => {
+      if (carDetected) {
         setShowAlert(true);
       }
     });
 
     return () => {
+      if (streamingInterval.current) {
+        clearInterval(streamingInterval.current);
+      }
       socket.disconnect();
     };
   }, []);
 
-  // Set up location tracking and intersection data
+  // Handle camera streaming
+  const startStreaming = async () => {
+    if (!cameraRef.current || !cameraPermission?.granted) return;
+
+    try {
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.5,
+        base64: true,
+        skipProcessing: true,
+      });
+
+      if (photo.base64 && intersectionNearby) {
+        socket.emit('getCarDetection', { frame: photo.base64 });
+      }
+    } catch (error) {
+      console.error('Camera error:', error);
+    }
+  };
+
+  // Initialize camera and location tracking
   useEffect(() => {
     let locationSubscription: Location.LocationSubscription;
-    let detectionInterval: NodeJS.Timeout;
     
     const initialize = async () => {
-      // Load intersections from GeoJSON file
+      // Request camera permission if not granted
+      if (!cameraPermission?.granted) {
+        await requestCameraPermission();
+      }
+
       const loaded = await loadIntersections();
       if (!loaded) {
         console.error('Failed to load intersections');
         return;
       }
       
-      // Start location updates
+      // Start location tracking
       locationSubscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.BestForNavigation,
-          timeInterval: 500,
+          timeInterval: 125,
           distanceInterval: 0,
         },
         (newLocation) => {
           setLocation(newLocation);
           
-          // Check if we're near an intersection
           const { isNear, nearbyIntersections: nearby } = checkNearbyIntersections(
             newLocation.coords.latitude,
             newLocation.coords.longitude,
-            20 // 20 meters radius
+            20
           );
           
           setIntersectionNearby(isNear);
-          if (nearby) {
-            setNearbyIntersections(nearby);
-          }
         }
       );
-      
-      // Start camera stream
-      const streamStarted = await startCameraStream();
-      setIsCameraReady(streamStarted);
-      
-      // Object detection loop
-      detectionInterval = setInterval(async () => {
-        if (intersectionNearby) {
-          console.log('begin detecting for cars');
-          try {
-            const frame = await getCameraFrame();
-            if (frame) {
-              socket.emit('getCarDetection', { frame });
-            }
-          } catch (error) {
-            console.error('Detection error:', error);
-          }
-        }
-      }, 500);
+
+      // Start camera streaming
+      if (cameraPermission?.granted) {
+        streamingInterval.current = setInterval(startStreaming, 125);
+      }
       
       setLoading(false);
     };
 
     initialize();
     
-    // Cleanup function
     return () => {
       if (locationSubscription) {
         locationSubscription.remove();
       }
-      if (detectionInterval) {
-        clearInterval(detectionInterval);
+      if (streamingInterval.current) {
+        clearInterval(streamingInterval.current);
       }
-      stopCameraStream();
     };
-  }, [intersectionNearby]);
+  }, [cameraPermission?.granted]);
+
+  if (!cameraPermission?.granted) {
+    return (
+      <View style={styles.container}>
+        <Text>Camera permission is required</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
       <LoadingComponent visible={loading} />
       
       <View style={styles.cameraContainer}>
-        {isCameraReady ? (
-          <RTSPStream
-            style={styles.camera}
-            onError={(error) => console.error('Stream error:', error)}
-          />
-        ) : (
-          <View style={styles.noCameraView}>
-            <Text>No camera detected</Text>
+        <CameraView
+          ref={cameraRef}
+          style={styles.camera}
+          facing="front"
+        >
+          <View style={styles.statusBar}>
+            <Text style={styles.statusText}>
+              {intersectionNearby ? 'Detecting Cars' : 'Monitoring'}
+            </Text>
           </View>
-        )}
+        </CameraView>
       </View>
       
       <MapView
@@ -145,8 +152,7 @@ const MapScreen: React.FC = () => {
           latitudeDelta: 0.01,
           longitudeDelta: 0.01,
         }}
-      >
-      </MapView>
+      />
       <AlertComponent 
         visible={showAlert} 
         onTimeout={() => setShowAlert(false)} 
@@ -165,11 +171,17 @@ const styles = StyleSheet.create({
   camera: {
     flex: 1,
   },
-  noCameraView: {
-    flex: 1,
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
+  statusBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    padding: 10,
+  },
+  statusText: {
+    color: '#fff',
+    fontSize: 14,
   },
   map: {
     height: Dimensions.get('window').height * 0.5,

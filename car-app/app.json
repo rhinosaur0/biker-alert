@@ -12,7 +12,8 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "This app needs access to your location to show your position on the map."
-      }
+      },
+      "bundleIdentifier": "com.rhinosaur0.carapp"
     },
     "android": {
       "adaptiveIcon": {
@@ -21,8 +22,11 @@
       },
       "permissions": [
         "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION"
-      ]
+      ],
+      "package": "com.rhinosaur0.carapp"
     },
     "web": {
       "bundler": "metro",
@@ -39,10 +43,24 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera",
+          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone",
+          "recordAudioAndroid": true
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      }
+    },
+    "owner": "rhinosaur0"
   }
 }
