@@ -21,7 +21,7 @@ const StartButton: React.FC<StartButtonProps> = ({ onStart, locationPermission }
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Bike Safety App</Text>
+      <Text style={styles.title}>Soteria</Text>
       <TouchableOpacity 
         style={styles.button} 
         onPress={handlePress}

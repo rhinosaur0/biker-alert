@@ -53,27 +53,33 @@ async def get_car_detection(sid, data):
     img_bytes = base64.b64decode(frame)
     nparr = np.frombuffer(img_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    
+    # Get image dimensions
+    height, width = img.shape[:2]
+    min_box_area_percentage = 0.1  # Box must be at least 5% of image area
+    min_box_area = (width * height) * min_box_area_percentage
 
     # Run detection
     results = model(img)
     
-    # Check for car detection
+    # Check for car detection with size threshold
     car_detected = False
     for result in results:
         boxes = result.boxes
-        for cls in boxes.cls.cpu().numpy():
+        for box, cls in zip(boxes.xyxy.cpu().numpy(), boxes.cls.cpu().numpy()):
             if result.names.get(int(cls)) == "car":
-                print("Car detected")
-                car_detected = True
-                break
+                # Calculate box area
+                box_width = box[2] - box[0]
+                box_height = box[3] - box[1]
+                box_area = box_width * box_height
+                
+                if box_area >= min_box_area:
+                    print(f"Car detected with area: {box_area:.2f} pixels² ({(box_area/(width*height))*100:.1f}% of frame)")
+                    car_detected = True
+                    await sio.emit("receiveStreaming")
+                    break
         if car_detected:
             break
-
-    # Emit the result with the frame
-    await sio.emit("receiveStreaming", {
-        "frame": frame,
-        "carDetected": car_detected
-    })
 
 @sio.on("noCarDetection")
 async def handle_no_detection(sid, data):

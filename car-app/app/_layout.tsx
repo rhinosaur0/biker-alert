@@ -4,6 +4,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StyleSheet } from 'react-native';
 import StartButton from '../components/StartButton';
 import MapScreen from '../components/MapScreen';
+// import CarDetectionApp from '@/components/newMapScreen'; 
+import MapCameraScreen from '@/components/MapCameraScreen';
 import * as Location from 'expo-location';
 
 export default function App() {

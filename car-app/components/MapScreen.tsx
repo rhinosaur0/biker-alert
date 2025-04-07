@@ -8,66 +8,60 @@ import AlertComponent from './AlertComponent';
 import { checkNearbyIntersections, loadIntersections } from '../services/IntersectionService';
 import io from 'socket.io-client';
 
-const SOCKET_URL = 'http://100.66.7.153:8000';
+const SOCKET_URL = 'http://100.66.13.84:8000';
+const socket = io(SOCKET_URL, {
+  transports: ['websocket'],
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
+});
+
 const COOLDOWN_DURATION = 5000; // 5 seconds in milliseconds
-const socket = io(SOCKET_URL);
+const INTERSECTION_CHECK_RADIUS_KM = 0.02; // 20 meters
 
 const MapScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [showAlert, setShowAlert] = useState(false);
-  const [intersectionNearby, setIntersectionNearby] = useState(false);
+  const [isNearIntersection, setIsNearIntersection] = useState(false);
+  const [isNearCooldown, setIsNearCooldown] = useState<boolean>(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [currentIntersection, setCurrentIntersection] = useState<string | null>(null);
-  const lastIntersectionUpdate = useRef(0);
   const notificationAnim = useRef(new Animated.Value(100)).current;
   const mapRef = useRef<MapView>(null);
   const cameraRef = useRef<CameraView>(null);
   const streamingInterval = useRef<NodeJS.Timeout | null>(null);
+  const isNearCooldownTimer = useRef<NodeJS.Timeout | null>(null);
   const isMounted = useRef(true);
   const [isCapturing, setIsCapturing] = useState(false);
 
-
-  // Handle socket connection and camera streaming
   useEffect(() => {
-    socket.connect();
-    
-    socket.on('receiveStreaming', ({ carDetected }) => {
-      if (carDetected) {
-        setShowAlert(true);
-      }
-    });
+    const handleConnect = () => {
+      console.log('Socket connected');
+    };
+
+    const handleDisconnect = () => {
+      console.log('Socket disconnected');
+    };
+
+    const handleCarDetection = () => {
+      setShowAlert(true);
+    };
+
+    socket.on('connect', handleConnect);
+    socket.on('disconnect', handleDisconnect);
+    socket.on('receiveStreaming', handleCarDetection);
+
+    if (!socket.connected) {
+      socket.connect();
+    }
 
     return () => {
-      isMounted.current = false;
-      if (streamingInterval.current) {
-        clearInterval(streamingInterval.current);
-      }
-      socket.disconnect();
+      socket.off('connect', handleConnect);
+      socket.off('disconnect', handleDisconnect);
+      socket.off('receiveStreaming', handleCarDetection);
     };
   }, []);
-
-  // Handle camera streaming
-  const startStreaming = async () => {
-    if (!cameraRef.current || !cameraPermission?.granted) return;
-
-    try {
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.5,
-        base64: true,
-        skipProcessing: true,
-      });
-      if (!photo) return;
-      if (photo.base64 && intersectionNearby) {
-        console.log('sending poto')
-        socket.emit('getCarDetection', { frame: photo.base64 });
-      }
-    } catch (error) {
-      console.error('Camera error:', error);
-    } finally {
-      setIsCapturing(false);
-    }
-  };
 
   const showNotification = (intersectionName: string) => {
     setCurrentIntersection(intersectionName);
@@ -86,77 +80,203 @@ const MapScreen: React.FC = () => {
     ]).start(() => setCurrentIntersection(null));
   };
 
-  // Initialize camera and location tracking
   useEffect(() => {
-    let locationSubscription: Location.LocationSubscription;
-    
+    let isSubscribed = true;
     const initialize = async () => {
-      // Request camera permission if not granted
       if (!cameraPermission?.granted) {
+        console.log("Requesting camera permission...");
         await requestCameraPermission();
       }
 
+      console.log("Loading intersections...");
       const loaded = await loadIntersections();
-      if (!loaded) {
+      if (!loaded && isSubscribed) {
         console.error('Failed to load intersections');
-        return;
+        setLoading(false);
+      } else if (loaded && isSubscribed) {
+         console.log(`Intersections loaded.`);
       }
-      
-      // Start location tracking
-      locationSubscription = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.BestForNavigation,
-          timeInterval: 125,
-          distanceInterval: 0,
-        },
-        (newLocation) => {
-          setLocation(newLocation);
-          
-          const { isNear, nearbyIntersections: nearby } = checkNearbyIntersections(
-            newLocation.coords.latitude,
-            newLocation.coords.longitude,
-            0.02 // 20 meters
-          );
-          
-          const currentTime = Date.now();
-          if (currentTime - lastIntersectionUpdate.current >= COOLDOWN_DURATION) {
-            if (isNear !== intersectionNearby) {
-              setIntersectionNearby(isNear);
-              lastIntersectionUpdate.current = currentTime;
-              
-              // Show notification when entering intersection zone
-              if (isNear && nearby && nearby.length > 0) {
-                showNotification(nearby[0].description || `Intersection ${nearby[0].id}`);
-              }
-            }
-          }
-        }
-      );
-
-      // Start camera streaming
-      if (cameraPermission?.granted) {
-        streamingInterval.current = setInterval(startStreaming, 1000);
+      if (isSubscribed) {
+        setLoading(false);
       }
-      
-      setLoading(false);
     };
 
     initialize();
-    
+
     return () => {
-      if (locationSubscription) {
-        locationSubscription.remove();
+      isSubscribed = false;
+    };
+  }, [cameraPermission]);
+
+  useEffect(() => {
+    let locationSubscription: Location.LocationSubscription | null = null;
+
+    const startLocationTracking = async () => {
+        console.log("Starting location tracking...");
+        try {
+            locationSubscription = await Location.watchPositionAsync(
+                {
+                    accuracy: Location.Accuracy.BestForNavigation,
+                    timeInterval: 1000,
+                    distanceInterval: 0,
+                },
+                (newLocation) => {
+                    setLocation(newLocation);
+                }
+            );
+            console.log("Location tracking started.");
+        } catch (error) {
+            console.error("Error starting location tracking:", error);
+        }
+    };
+
+    const stopLocationTracking = () => {
+        if (locationSubscription) {
+            console.log("Stopping location tracking...");
+            locationSubscription.remove();
+            locationSubscription = null;
+            console.log("Location tracking stopped.");
+        }
+    };
+
+    (async () => {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+            startLocationTracking();
+        } else {
+            console.error('Location permission denied');
+            setLoading(false);
+        }
+    })();
+
+    return () => {
+        stopLocationTracking();
+        if (isNearCooldownTimer.current) {
+             clearTimeout(isNearCooldownTimer.current);
+        }
+    };
+  }, []);
+
+  useEffect(() => {
+      if (!location) return;
+
+      const { latitude, longitude } = location.coords;
+      const checkResult = checkNearbyIntersections(
+          latitude,
+          longitude,
+          INTERSECTION_CHECK_RADIUS_KM
+      );
+
+      const currentlyNear = checkResult.isNear;
+      const nearby = checkResult.nearbyIntersections;
+
+      if (currentlyNear !== isNearIntersection && !isNearCooldown) {
+          console.log(`Intersection proximity changed to: ${currentlyNear}. Starting cooldown.`);
+          setIsNearIntersection(currentlyNear);
+          setIsNearCooldown(true);
+
+          if (currentlyNear && nearby && nearby.length > 0) {
+              showNotification(nearby[0].description || `Intersection ${nearby[0].id}`);
+          }
+
+          if (isNearCooldownTimer.current) {
+              clearTimeout(isNearCooldownTimer.current);
+          }
+
+          isNearCooldownTimer.current = setTimeout(() => {
+              console.log("Cooldown finished.");
+              setIsNearCooldown(false);
+              isNearCooldownTimer.current = null;
+          }, COOLDOWN_DURATION);
       }
-      if (streamingInterval.current) {
-        clearInterval(streamingInterval.current);
+  }, [location, isNearIntersection, isNearCooldown]);
+
+  useEffect(() => {
+    const startFrameSendingInterval = () => {
+        if (streamingInterval.current) return;
+        console.log("Starting frame sending interval...");
+        streamingInterval.current = setInterval(async () => {
+            if (cameraRef.current && cameraPermission?.granted && socket.connected) {
+                try {
+                    const picture = await cameraRef.current.takePictureAsync({
+                        quality: 0.5,
+                        base64: true,
+                    });
+                    if (picture?.base64) {
+                        socket.emit('getCarDetection', { frame: picture.base64 });
+                    }
+                } catch (error) {
+                    console.error("Error taking picture:", error);
+                }
+            } else if (!socket.connected) {
+                 console.warn("Socket disconnected, stopping frame sending.");
+                 stopFrameSendingInterval();
+            }
+        }, 1000);
+    };
+
+    const stopFrameSendingInterval = () => {
+        if (streamingInterval.current) {
+            console.log("Stopping frame sending interval.");
+            clearInterval(streamingInterval.current);
+            streamingInterval.current = null;
+        }
+    };
+
+    if (isNearIntersection && cameraPermission?.granted && socket.connected) {
+        startFrameSendingInterval();
+    } else {
+        stopFrameSendingInterval();
+    }
+
+    return () => {
+        stopFrameSendingInterval();
+    };
+  }, [isNearIntersection, cameraPermission?.granted, socket.connected]);
+
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout | null = null;
+
+    if (showAlert) {
+      clearTimeout(timeoutId!);
+
+      timeoutId = setTimeout(() => {
+        if (isMounted.current) {
+          setShowAlert(false);
+        }
+      }, 5000);
+    }
+
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
       }
     };
-  }, [cameraPermission?.granted]);
+  }, [showAlert]);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  if (loading) {
+     return <LoadingComponent visible={true} />;
+  }
 
   if (!cameraPermission?.granted) {
     return (
       <View style={styles.container}>
-        <Text>Camera permission is required</Text>
+        <Text>Camera permission is required to function fully.</Text>
+      </View>
+    );
+  }
+
+  if (!location) {
+    return (
+      <View style={styles.container}>
+        <Text>Waiting for location data... Ensure location services are enabled.</Text>
       </View>
     );
   }
@@ -174,7 +294,7 @@ const MapScreen: React.FC = () => {
         >
           <View style={styles.statusBar}>
             <Text style={styles.statusText}>
-              {intersectionNearby ? 'Detecting Cars' : 'Monitoring'}
+              {isNearIntersection ? 'Detecting Cars' : 'Monitoring'}
             </Text>
           </View>
         </CameraView>
@@ -187,8 +307,8 @@ const MapScreen: React.FC = () => {
           showsUserLocation={true}
           followsUserLocation={true}
           initialRegion={{
-            latitude: location?.coords.latitude || 37.78825,
-            longitude: location?.coords.longitude || -122.4324,
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
             latitudeDelta: 0.01,
             longitudeDelta: 0.01,
           }}
