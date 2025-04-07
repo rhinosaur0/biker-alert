@@ -65,12 +65,11 @@ const fetchIntersections = async () => {
 export const loadIntersections = async () => {
   try {
     const intersections = await fetchIntersections();
-    
-    // Extract coordinates and properties
+    console.log(intersections[0].geometry.coordinates[0])    // Extract coordinates and properties
     intersectionPoints = intersections.map(intersection => ({
       coordinates: [
-        intersection.geometry.coordinates[0][0], // longitude
-        intersection.geometry.coordinates[0][1]  // latitude
+        intersection.geometry.coordinates[0], // longitude
+        intersection.geometry.coordinates[1]  // latitude
       ],
       id: intersection.INTERSECTION_ID,
       description: intersection.INTERSECTION_DESC
@@ -110,6 +109,8 @@ export const checkNearbyIntersections = (
     1,  // maxResults: maximum number of points to return
     radius // kilometers
   ) as number[];
+
+
   
   if (nearbyIndices.length === 0) return { isNear: false };
   
@@ -117,7 +118,16 @@ export const checkNearbyIntersections = (
   const nearbyIntersections = nearbyIndices.map(index => ({
     id: intersectionPoints[index].id,
     description: intersectionPoints[index].description
+
   }));
+
+  const nearbyCheck = nearbyIndices.map(index => ({
+    coordinates: intersectionPoints[index].coordinates
+  }))
+
+  // console.log(nearbyCheck);
+  console.log(nearbyIntersections)
+  
   
   return {
     isNear: true,

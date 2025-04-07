@@ -12,7 +12,6 @@ const AlertComponent: React.FC<AlertComponentProps> = ({ visible, onTimeout }) =
       // Vibrate pattern: wait 500ms, vibrate for 500ms, wait 500ms, vibrate for 500ms
       Vibration.vibrate([500, 500, 500, 500]);
       
-      // Auto-hide after 5 seconds
       const timer = setTimeout(() => {
         onTimeout();
       }, 5000);
