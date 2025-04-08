@@ -4,7 +4,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StyleSheet } from 'react-native';
 import StartButton from '../components/StartButton';
 // import MapScreen from '../components/MapScreen';
-import MapScreen from '../components/OnlyGPS'
+// import MapScreen from '../components/OnlyGPS'
+import SimulationScreen from '@/components/Simulation';
 import * as Location from 'expo-location';
 
 export default function App() {
@@ -31,7 +32,7 @@ export default function App() {
           locationPermission={locationPermission} 
         />
       ) : (
-        <MapScreen />
+        <SimulationScreen />
       )}
     </SafeAreaProvider>
   );

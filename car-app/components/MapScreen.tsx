@@ -17,7 +17,7 @@ const socket = io(SOCKET_URL, {
 });
 
 const COOLDOWN_DURATION = 5000; // 5 seconds in milliseconds
-const INTERSECTION_CHECK_RADIUS_KM = 0.02; // 20 meters
+const INTERSECTION_CHECK_RADIUS_KM = 0.3; // 20 meters
 
 const MapScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
