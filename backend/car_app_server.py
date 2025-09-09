@@ -56,7 +56,7 @@ async def get_car_detection(sid, data):
     
     # Get image dimensions
     height, width = img.shape[:2]
-    min_box_area_percentage = 0.1  # Box must be at least 5% of image area
+    min_box_area_percentage = 0.05  # Box must be at least 5% of image area
     min_box_area = (width * height) * min_box_area_percentage
 
     # Run detection

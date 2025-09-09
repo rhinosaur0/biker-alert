@@ -1,9 +1,0 @@
-{
-  "scripts":{
-    "start": "npx tsx server.ts"
-  },
-  "dependencies": {
-    "geolib": "^3.3.4",
-    "socket.io": "^4.8.1"
-  }
-}
